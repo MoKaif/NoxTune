@@ -13,7 +13,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, toggleSidebar }) => {
     { path: '/artists', label: 'Artists' },
     { path: '/albums', label: 'Albums' },
     { path: '/genres', label: 'Genres' },
-    { path: '/playlists', label: 'Playlists (Soon)', disabled: true },
+    { path: '/playlists', label: 'Playlists' },
     { path: '/insights', label: 'Insights (Soon)', disabled: true },
   ];
 
@@ -42,7 +42,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, toggleSidebar }) => {
                 onClick={() => {
                   if (!item.disabled) {
                     navigate(item.path);
-                    if (window.innerWidth < 768) toggleSidebar(); // Only toggle on mobile
+                    if (window.innerWidth < 768) toggleSidebar();
                   }
                 }}
                 disabled={item.disabled}

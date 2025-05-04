@@ -3,15 +3,19 @@ import os
 from fastapi import FastAPI, HTTPException, Query, Depends
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware  # Added for CORS
-from sqlalchemy import create_engine, Column, Integer, String, Text, or_
+from sqlalchemy import create_engine, Column, Integer, Boolean, String, Text, or_
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.exc import IntegrityError
 from typing import List, Optional
+from sqlalchemy import ForeignKey
+from typing import Dict
 from pydantic import BaseModel
 import uvicorn
 import eyed3
 from sqlalchemy import func
+import time
+import asyncio
 
 # Initialize FastAPI app
 app = FastAPI(title="NoxTune Music Streaming API")
@@ -47,10 +51,6 @@ class Song(Base):
     source_type = Column(String, default="local")
     source = Column(String, unique=True)  # Path to audio file
     album_art = Column(Text, nullable=True)  # Base64 encoded album art
-
-# Create database tables
-Base.metadata.create_all(bind=engine)
-
 # Pydantic models for API responses
 class SongResponse(BaseModel):
     id: int
@@ -66,6 +66,41 @@ class SongResponse(BaseModel):
 class SongListResponse(BaseModel):
     songs: List[SongResponse]
     total: int
+
+# SQLAlchemy model for Playlist
+class Playlist(Base):
+    __tablename__ = "playlists"
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, index=True)
+    is_user_created = Column(Boolean, default=True)
+    created_by = Column(String, default="system")
+
+# SQLAlchemy model for PlaylistSong
+class PlaylistSong(Base):
+    __tablename__ = "playlist_songs"
+    playlist_id = Column(Integer, ForeignKey("playlists.id"), primary_key=True)
+    song_id = Column(Integer, ForeignKey("songs.id"), primary_key=True)
+
+# Pydantic models
+class PlaylistResponse(BaseModel):
+    id: int
+    name: str
+    is_user_created: bool
+    created_by: str
+    songs: List[SongResponse]
+    song_count: int
+
+class CreatePlaylistRequest(BaseModel):
+    name: str
+    song_ids: List[int] = []
+
+class UpdatePlaylistRequest(BaseModel):
+    name: str
+
+class AddSongsRequest(BaseModel):
+    song_ids: List[int]
+# Create database tables
+Base.metadata.create_all(bind=engine)
 
 # Dependency to get DB session
 def get_db():
@@ -130,29 +165,126 @@ def scan_music_dir(base_path: str) -> List[dict]:
                 songs.append(song_data)
     return songs
 
-# Seed database on startup
+# Improved seeding logic
 @app.on_event("startup")
-def seed_database():
+async def seed_database():
+    start_time = time.time()
     db = SessionLocal()
     try:
-        # Check if database is already seeded
-        if db.query(Song).count() > 0:
-            print("Database already seeded, skipping...")
+        # Check if seeding is needed (6 playlists: 1 OG + 5 genre)
+        playlist_count = db.query(Playlist).count()
+        song_count = db.query(Song).count()
+        if playlist_count >= 6 and song_count > 0:
+            print(f"Database seeded (Songs: {song_count}, Playlists: {playlist_count}, Elapsed: {time.time() - start_time:.2f}s)")
             return
+
+        # Step 1: Seed songs if none exist
+        if song_count == 0:
+            print("No songs found, seeding songs...")
+            song_data = scan_music_dir(MUSIC_DIR)
+            total_songs = len(song_data)
+            print(f"Found {total_songs} songs to seed")
+            batch_size = 100
+            for i in range(0, total_songs, batch_size):
+                batch = song_data[i:i + batch_size]
+                db.bulk_insert_mappings(Song, batch)
+                db.commit()
+                print(f"Seeded {min(i + batch_size, total_songs)}/{total_songs} songs")
+                await asyncio.sleep(0.1)  # Prevent I/O thrashing
+            print(f"Songs seeded (Elapsed: {time.time() - start_time:.2f}s)")
+        else:
+            print(f"Found {song_count} songs, skipping song seeding")
+
+        # Step 2: Create or update OG Playlist
+        all_song_ids = list(set(song.id for song in db.query(Song.id).all()))  # Ensure unique song IDs
+        og_playlist = db.query(Playlist).filter(Playlist.name == "OG Playlist").first()
+        if not og_playlist:
+            print("Creating OG Playlist...")
+            og_playlist = Playlist(name="OG Playlist", is_user_created=False, created_by="system")
+            db.add(og_playlist)
+            db.flush()
+        else:
+            print(f"Updating OG Playlist (ID: {og_playlist.id})...")
         
-        # Scan the music directory
-        songs = scan_music_dir(MUSIC_DIR)
-        
-        # Seed songs into the DB
-        for i, song_data in enumerate(songs):
-            print(f"Seeding song {i+1}/{len(songs)}: {song_data['source']}")  # Debug
-            song = Song(**song_data)
-            db.add(song)
+        # Clear existing PlaylistSong entries
+        db.query(PlaylistSong).filter(PlaylistSong.playlist_id == og_playlist.id).delete()
         db.commit()
-        print(f"Seeded {len(songs)} songs into the database.")
+
+        # Check existing songs in playlist to avoid duplicates
+        existing_songs = set(
+            ps.song_id for ps in db.query(PlaylistSong).filter(PlaylistSong.playlist_id == og_playlist.id).all()
+        )
+        new_playlist_songs = [
+            {"playlist_id": og_playlist.id, "song_id": song_id}
+            for song_id in all_song_ids
+            if song_id not in existing_songs
+        ]
+
+        # Batch insert PlaylistSong for OG Playlist
+        batch_size = 100
+        for i in range(0, len(new_playlist_songs), batch_size):
+            batch = new_playlist_songs[i:i + batch_size]
+            db.bulk_insert_mappings(PlaylistSong, batch)
+            db.commit()
+            print(f"Seeded {min(i + batch_size, len(new_playlist_songs))}/{len(new_playlist_songs)} songs for OG Playlist")
+            await asyncio.sleep(0.1)
+        print(f"Seeded OG Playlist with {len(all_song_ids)} songs (Elapsed: {time.time() - start_time:.2f}s)")
+
+        # Step 3: Create 5 genre playlists with most songs
+        existing_genre_playlists = db.query(Playlist).filter(Playlist.is_user_created == False, Playlist.name != "OG Playlist").count()
+        if existing_genre_playlists < 5:
+            top_genres = (
+                db.query(Song.genre, func.count(Song.id).label("song_count"))
+                .group_by(Song.genre)
+                .order_by(func.count(Song.id).desc())
+                .limit(5)
+                .all()
+            )
+            print(f"Top 5 genres: {[g.genre + f' ({g.song_count} songs)' for g in top_genres if g.genre]}")
+
+            for genre, song_count in top_genres:
+                genre_name = genre or "Unknown"
+                playlist_name = f"{genre_name} Hits"
+                genre_playlist = db.query(Playlist).filter(Playlist.name == playlist_name).first()
+                if not genre_playlist:
+                    print(f"Creating {playlist_name}...")
+                    genre_playlist = Playlist(name=playlist_name, is_user_created=False, created_by="system")
+                    db.add(genre_playlist)
+                    db.flush()
+                else:
+                    print(f"Updating {playlist_name} (ID: {genre_playlist.id})...")
+                
+                # Clear existing PlaylistSong entries
+                db.query(PlaylistSong).filter(PlaylistSong.playlist_id == genre_playlist.id).delete()
+                db.commit()
+
+                # Get up to 50 unique song IDs for the genre
+                genre_songs = (
+                    db.query(Song.id)
+                    .filter(Song.genre == genre_name)
+                    .limit(50)
+                    .all()
+                )
+                genre_song_ids = list(set(song.id for song in genre_songs))  # Ensure unique song IDs
+                playlist_songs = [
+                    {"playlist_id": genre_playlist.id, "song_id": song_id}
+                    for song_id in genre_song_ids
+                ]
+
+                # Batch insert PlaylistSong
+                for i in range(0, len(playlist_songs), batch_size):
+                    batch = playlist_songs[i:i + batch_size]
+                    db.bulk_insert_mappings(PlaylistSong, batch)
+                    db.commit()
+                    print(f"Seeded {min(i + batch_size, len(playlist_songs))}/{len(playlist_songs)} songs for {playlist_name}")
+                    await asyncio.sleep(0.1)
+                print(f"Seeded {playlist_name} with {len(genre_song_ids)} songs (Elapsed: {time.time() - start_time:.2f}s)")
+
+        print(f"Seeding completed successfully (Total Elapsed: {time.time() - start_time:.2f}s)")
     except Exception as e:
         db.rollback()
-        print(f"Error seeding database: {str(e)}")
+        print(f"Error seeding database: {str(e)} (Elapsed: {time.time() - start_time:.2f}s)")
+        raise
     finally:
         db.close()
 
@@ -306,6 +438,130 @@ async def list_songs_by_album(
         ],
         total=total
     )
+# Endpoint to create a playlist
+# Create playlist
+@app.post("/playlists", response_model=PlaylistResponse)
+async def create_playlist(request: CreatePlaylistRequest, db: Session = Depends(get_db)):
+    try:
+        playlist = Playlist(name=request.name, is_user_created=True, created_by="user")
+        db.add(playlist)
+        db.flush()
+        for song_id in request.song_ids:
+            if db.query(Song).filter(Song.id == song_id).first():
+                db.add(PlaylistSong(playlist_id=playlist.id, song_id=song_id))
+        db.commit()
+        songs = db.query(Song).join(PlaylistSong).filter(PlaylistSong.playlist_id == playlist.id).all()
+        return PlaylistResponse(
+            id=playlist.id,
+            name=playlist.name,
+            is_user_created=playlist.is_user_created,
+            created_by=playlist.created_by,
+            songs=[SongResponse(**song.__dict__) for song in songs],
+            song_count=len(songs),
+        )
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=400, detail="Playlist name already exists")
+
+# List playlists
+@app.get("/playlists", response_model=List[PlaylistResponse])
+async def list_playlists(db: Session = Depends(get_db)):
+    playlists = db.query(Playlist).all()
+    result = []
+    for playlist in playlists:
+        songs = db.query(Song).join(PlaylistSong).filter(PlaylistSong.playlist_id == playlist.id).all()
+        result.append(
+            PlaylistResponse(
+                id=playlist.id,
+                name=playlist.name,
+                is_user_created=playlist.is_user_created,
+                created_by=playlist.created_by,
+                songs=[SongResponse(**song.__dict__) for song in songs],
+                song_count=len(songs),
+            )
+        )
+    return result
+
+# Get single playlist
+@app.get("/playlists/{playlist_id}", response_model=PlaylistResponse)
+async def get_playlist(playlist_id: int, db: Session = Depends(get_db)):
+    playlist = db.query(Playlist).filter(Playlist.id == playlist_id).first()
+    if not playlist:
+        raise HTTPException(status_code=404, detail="Playlist not found")
+    songs = db.query(Song).join(PlaylistSong).filter(PlaylistSong.playlist_id == playlist.id).all()
+    return PlaylistResponse(
+        id=playlist.id,
+        name=playlist.name,
+        is_user_created=playlist.is_user_created,
+        created_by=playlist.created_by,
+        songs=[SongResponse(**song.__dict__) for song in songs],
+        song_count=len(songs),
+    )
+
+# Add songs to playlist
+@app.post("/playlists/{playlist_id}/songs", response_model=PlaylistResponse)
+async def add_songs_to_playlist(playlist_id: int, request: AddSongsRequest, db: Session = Depends(get_db)):
+    playlist = db.query(Playlist).filter(Playlist.id == playlist_id).first()
+    if not playlist:
+        raise HTTPException(status_code=404, detail="Playlist not found")
+    if not playlist.is_user_created:
+        raise HTTPException(status_code=403, detail="Cannot modify recommended playlists")
+    try:
+        for song_id in request.song_ids:
+            if db.query(Song).filter(Song.id == song_id).first():
+                if not db.query(PlaylistSong).filter_by(playlist_id=playlist_id, song_id=song_id).first():
+                    db.add(PlaylistSong(playlist_id=playlist_id, song_id=song_id))
+        db.commit()
+        songs = db.query(Song).join(PlaylistSong).filter(PlaylistSong.playlist_id == playlist_id).all()
+        return PlaylistResponse(
+            id=playlist.id,
+            name=playlist.name,
+            is_user_created=playlist.is_user_created,
+            created_by=playlist.created_by,
+            songs=[SongResponse(**song.__dict__) for song in songs],
+            song_count=len(songs),
+        )
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=400, detail="Some songs could not be added")
+
+# Rename playlist
+@app.put("/playlists/{playlist_id}", response_model=PlaylistResponse)
+async def rename_playlist(playlist_id: int, request: UpdatePlaylistRequest, db: Session = Depends(get_db)):
+    playlist = db.query(Playlist).filter(Playlist.id == playlist_id).first()
+    if not playlist:
+        raise HTTPException(status_code=404, detail="Playlist not found")
+    if not playlist.is_user_created:
+        raise HTTPException(status_code=403, detail="Cannot modify recommended playlists")
+    try:
+        playlist.name = request.name
+        db.commit()
+        songs = db.query(Song).join(PlaylistSong).filter(PlaylistSong.playlist_id == playlist_id).all()
+        return PlaylistResponse(
+            id=playlist.id,
+            name=playlist.name,
+            is_user_created=playlist.is_user_created,
+            created_by=playlist.created_by,
+            songs=[SongResponse(**song.__dict__) for song in songs],
+            song_count=len(songs),
+        )
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=400, detail="Playlist name already exists")
+
+# Delete playlist
+@app.delete("/playlists/{playlist_id}")
+async def delete_playlist(playlist_id: int, db: Session = Depends(get_db)):
+    playlist = db.query(Playlist).filter(Playlist.id == playlist_id).first()
+    if not playlist:
+        raise HTTPException(status_code=404, detail="Playlist not found")
+    if not playlist.is_user_created:
+        raise HTTPException(status_code=403, detail="Cannot delete recommended playlists")
+    db.query(PlaylistSong).filter(PlaylistSong.playlist_id == playlist_id).delete()
+    db.delete(playlist)
+    db.commit()
+    return {"detail": "Playlist deleted"}
+
 # Run the application
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)

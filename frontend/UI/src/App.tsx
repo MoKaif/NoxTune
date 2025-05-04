@@ -5,8 +5,10 @@ import SongList from './Components/SongList';
 import ArtistList from './Components/ArtistList';
 import AlbumList from './Components/AlbumList';
 import GenreList from './Components/GenreList';
+import PlaylistPage from './Components/PlaylistPage';
 import MusicPlayer from './Components/MusicPlayer';
-import { Song } from './Types/types';
+import { Song, Playlist } from './Types/types';
+import api from './Services/api';
 
 const App: React.FC = () => {
   const [currentSong, setCurrentSong] = useState<Song | null>(null);
@@ -17,9 +19,17 @@ const App: React.FC = () => {
 
   const handleSelectSong = (song: Song) => {
     setCurrentSong(song);
-    // Ensure the song is in the queue
     if (!songList.some((s) => s.id === song.id)) {
       setSongList((prev) => [...prev, song]);
+    }
+  };
+
+  const handleSelectPlaylist = (playlist: Playlist) => {
+    setSongList(playlist.songs);
+    if (playlist.songs.length > 0) {
+      // Start with a random song for shuffle
+      const randomIndex = Math.floor(Math.random() * playlist.songs.length);
+      setCurrentSong(playlist.songs[randomIndex]);
     }
   };
 
@@ -32,18 +42,28 @@ const App: React.FC = () => {
         if (path === '/') {
           const data = await api.fetchSongs(0, 50);
           songs = data.songs;
-        } else if (path.startsWith('/artists') && path.split('/').length === 3) {
-          const artistName = decodeURIComponent(path.split('/')[2]);
-          const data = await api.fetchSongsByArtist(artistName, 0, 50);
-          songs = data.songs;
-        } else if (path.startsWith('/albums') && path.split('/').length === 3) {
-          const albumName = decodeURIComponent(path.split('/')[2]);
-          const data = await api.fetchSongsByAlbum(albumName, 0, 50);
-          songs = data.songs;
-        } else if (path.startsWith('/genres') && path.split('/').length === 3) {
-          const genreName = decodeURIComponent(path.split('/')[2]);
-          const data = await api.fetchSongs(0, 50, `genre:${genreName}`);
-          songs = data.songs;
+        } else if (path === '/playlists') {
+          const data = await api.fetchPlaylists();
+          const ogPlaylist = data.find((p) => p.name === 'OG Playlist');
+          songs = ogPlaylist ? ogPlaylist.songs : [];
+        } else if (path.startsWith('/artists')) {
+          const artistName = decodeURIComponent(path.split('/')[2] || '');
+          if (artistName) {
+            const data = await api.fetchSongsByArtist(artistName, 0, 50);
+            songs = data.songs;
+          }
+        } else if (path.startsWith('/albums')) {
+          const albumName = decodeURIComponent(path.split('/')[2] || '');
+          if (albumName) {
+            const data = await api.fetchSongsByAlbum(albumName, 0, 50);
+            songs = data.songs;
+          }
+        } else if (path.startsWith('/genres')) {
+          const genreName = decodeURIComponent(path.split('/')[2] || '');
+          if (genreName) {
+            const data = await api.fetchSongs(0, 50, `genre:${genreName}`);
+            songs = data.songs;
+          }
         }
         setSongList(songs);
       } catch (error) {
@@ -83,7 +103,10 @@ const App: React.FC = () => {
             path="/genres"
             element={<GenreList onSelectSong={handleSelectSong} />}
           />
-          <Route path="/playlists" element={<div>Playlists (Coming Soon)</div>} />
+          <Route
+            path="/playlists"
+            element={<PlaylistPage onSelectPlaylist={handleSelectPlaylist} onSelectSong={handleSelectSong} />}
+          />
           <Route path="/insights" element={<div>Insights (Coming Soon)</div>} />
         </Routes>
       </div>

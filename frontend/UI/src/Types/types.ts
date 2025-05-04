@@ -30,3 +30,12 @@ export interface Genre {
   name: string;
   song_count: number;
 }
+
+export interface Playlist {
+  id: number;
+  name: string;
+  is_user_created: boolean;
+  created_by: string;
+  songs: Song[];
+  song_count: number;
+}
