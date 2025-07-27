@@ -1,0 +1,26 @@
+# Node.js
+node_modules/
+dist/
+build/
+.env
+.env.local
+.env.*.local
+
+# Python
+__pycache__/
+*.pyc
+*.log
+.venv/
+venv/
+Backend/.env
+
+# IDEs
+.vscode/
+.idea/
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Lovable specific
+.lovable/

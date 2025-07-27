@@ -1,0 +1,188 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* NoxTunes Premium Design System - Dark theme with vibrant accents */
+
+@layer base {
+  :root {
+    /* Base dark theme */
+    --background: 220 13% 9%;
+    --foreground: 210 11% 96%;
+
+    /* Card variants */
+    --card: 220 13% 11%;
+    --card-foreground: 210 11% 96%;
+    --card-hover: 220 13% 13%;
+
+    /* Popover */
+    --popover: 220 13% 11%;
+    --popover-foreground: 210 11% 96%;
+
+    /* Primary - Nox signature purple */
+    --primary: 271 91% 65%;
+    --primary-foreground: 210 11% 96%;
+    --primary-glow: 271 91% 75%;
+
+    /* Secondary - Subtle purple */
+    --secondary: 220 13% 16%;
+    --secondary-foreground: 210 11% 96%;
+
+    /* Muted variants */
+    --muted: 220 13% 14%;
+    --muted-foreground: 215 25% 65%;
+
+    /* Accent - Bright cyan for highlights */
+    --accent: 180 100% 70%;
+    --accent-foreground: 220 13% 9%;
+
+    /* Destructive */
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 210 11% 96%;
+
+    /* Borders and inputs */
+    --border: 220 13% 20%;
+    --input: 220 13% 16%;
+    --ring: 271 91% 65%;
+
+    /* Music player specific */
+    --player-bg: 220 13% 8%;
+    --track-bg: 220 13% 12%;
+    --track-hover: 220 13% 15%;
+    --sidebar-bg: 220 13% 7%;
+    --progress-bg: 220 13% 25%;
+
+    /* Gradients */
+    --gradient-primary: linear-gradient(135deg, hsl(271 91% 65%), hsl(271 91% 75%));
+    --gradient-hero: linear-gradient(180deg, hsl(220 13% 9%), hsl(220 13% 6%));
+    --gradient-card: linear-gradient(145deg, hsl(220 13% 11%), hsl(220 13% 13%));
+
+    /* Shadows */
+    --shadow-glow: 0 0 30px hsl(271 91% 65% / 0.3);
+    --shadow-card: 0 4px 20px hsl(220 13% 3% / 0.4);
+    --shadow-player: 0 -4px 20px hsl(220 13% 3% / 0.6);
+
+    /* Animations */
+    --transition-smooth: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    --transition-bounce: all 0.4s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+
+    --radius: 0.75rem;
+
+    --sidebar-background: 0 0% 98%;
+
+    --sidebar-foreground: 240 5.3% 26.1%;
+
+    --sidebar-primary: 240 5.9% 10%;
+
+    --sidebar-primary-foreground: 0 0% 98%;
+
+    --sidebar-accent: 240 4.8% 95.9%;
+
+    --sidebar-accent-foreground: 240 5.9% 10%;
+
+    --sidebar-border: 220 13% 91%;
+
+    --sidebar-ring: 217.2 91.2% 59.8%;
+  }
+
+  /* Light theme (if ever needed) */
+  .light {
+    --background: 0 0% 100%;
+    --foreground: 220 13% 9%;
+    --card: 0 0% 100%;
+    --card-foreground: 220 13% 9%;
+    --primary: 271 91% 65%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 210 40% 96%;
+    --secondary-foreground: 220 13% 9%;
+    --muted: 210 40% 96%;
+    --muted-foreground: 215 16% 47%;
+    --accent: 180 100% 70%;
+    --accent-foreground: 220 13% 9%;
+    --border: 214 32% 91%;
+    --input: 214 32% 91%;
+    --ring: 271 91% 65%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    background: hsl(var(--background));
+    overflow-x: hidden;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  /* Custom scrollbar */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: hsl(var(--muted));
+    border-radius: 4px;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: hsl(var(--muted-foreground) / 0.3);
+    border-radius: 4px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--muted-foreground) / 0.5);
+  }
+}
+
+@layer components {
+  /* Glass effect utilities */
+  .glass {
+    @apply backdrop-blur-xl bg-card/80 border border-border/50;
+  }
+
+  .glass-strong {
+    @apply backdrop-blur-2xl bg-card/90 border border-border/70;
+  }
+
+  /* Music player specific components */
+  .track-item {
+    @apply p-3 rounded-lg transition-all duration-200 cursor-pointer;
+    background-color: hsl(var(--track-bg));
+  }
+
+  .track-item:hover {
+    background-color: hsl(var(--track-hover));
+    transform: translateY(-1px);
+    box-shadow: var(--shadow-card);
+  }
+
+  .album-art-glow {
+    box-shadow: 0 8px 32px hsl(var(--primary) / 0.3);
+  }
+
+  /* Gradient text */
+  .gradient-text {
+    background: var(--gradient-primary);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  /* Glow effects */
+  .glow {
+    box-shadow: var(--shadow-glow);
+  }
+
+  .glow-hover:hover {
+    box-shadow: var(--shadow-glow);
+    transform: translateY(-2px);
+    transition: var(--transition-smooth);
+  }
+}
